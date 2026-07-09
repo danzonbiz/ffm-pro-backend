@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFM Pro - Admin Generate Kode</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 18px; }
+  input, button { font-size: 15px; padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+  button { background: #9c3f10; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+  .code-box { background: #f4f1ea; border: 1px dashed #c8551a; border-radius: 8px; padding: 16px; font-size: 20px; font-weight: 800; text-align: center; margin-top: 16px; letter-spacing: 1px; }
+  .err { color: #b6412b; font-size: 13px; }
+  .hint { color: #6b6255; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <h1>Generate Kode Pembelian Pro</h1>
+  <p class="hint">Halaman ini privat &mdash; jangan dibagikan linknya ke buyer. Simpan password admin di tempat aman.</p>
+  <label>Password Admin<br>
+    <input type="password" id="admin-secret" placeholder="ADMIN_SECRET">
+  </label>
+  <label>Catatan (opsional, mis. nama buyer / no. order)<br>
+    <input type="text" id="note" placeholder="Order #123 - Budi">
+  </label>
+  <button id="gen-btn">Generate Kode Baru</button>
+  <div id="err" class="err"></div>
+  <div id="result"></div>
+
+  <script>
+    document.getElementById("gen-btn").addEventListener("click", function () {
+      var secret = document.getElementById("admin-secret").value;
+      var note = document.getElementById("note").value;
+      var err = document.getElementById("err");
+      var result = document.getElementById("result");
+      err.textContent = ""; result.innerHTML = "";
+      if (!secret) { err.textContent = "Isi password admin dulu."; return; }
+      fetch("/api/generate-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Admin-Secret": secret },
+        body: JSON.stringify({ note: note })
+      }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (r) {
+          if (r.ok && r.data.code) {
+            result.innerHTML = '<div class="code-box">' + r.data.code + '</div>';
+          } else {
+            err.textContent = r.data.message || "Gagal generate kode.";
+          }
+        }).catch(function () { err.textContent = "Gagal terhubung ke server."; });
+    });
+  </script>
+</body>
+</html>
