@@ -1,30 +1,32 @@
-# FFM Pro Backend - Verifikasi Kode Unik
+# FFM Pro Backend v2
 
-Backend kecil untuk generate & verifikasi kode pembelian Pro (Opsi B yang dipilih). Terpisah dari PWA utama, di-deploy sebagai project Vercel sendiri.
+Backend aktivasi untuk FFM Toolkit. Lanjutan dari `Arsip/2026-07-07-ffm-pro-backend` (verifikasi kode 1-device-per-kode tidak diubah), ditambah endpoint webhook supaya kode otomatis dibuat dan dikirim email saat ada pembelian baru di OrderHero.
 
-## Cara Deploy
+## Endpoint
 
-1. Push folder ini ke repo GitHub baru (atau upload langsung via Vercel CLI: `vercel deploy` dari dalam folder ini).
-2. Di dashboard Vercel project ini:
-   - Buka tab **Storage** > **Create Database** > pilih **KV** (Upstash Redis). Setelah dibuat, Vercel otomatis mengisi env var `KV_REST_API_URL` dan `KV_REST_API_TOKEN` ke project ini.
-   - Buka tab **Settings > Environment Variables**, tambahkan `ADMIN_SECRET` = password admin pilihanmu sendiri (ini yang dipakai untuk generate kode, bukan password login app).
-3. Deploy. Kamu akan dapat URL seperti `https://ffm-pro-api.vercel.app`.
+- `POST /api/verify-code` — dipanggil dari app FFM Toolkit saat buyer input kode. Tidak berubah dari versi lama.
+- `POST /api/generate-code` — generate kode manual lewat `admin.html`, untuk kasus di luar jalur otomatis (mis. refund diganti unit baru, dukungan pelanggan).
+- `POST /api/order-webhook?secret=XXXX` — dipanggil OrderHero saat order lunas. Mengecek produk & tanggal cutoff, generate kode, kirim email lewat Resend. Order sebelum `ACTIVATION_CUTOFF_ISO` otomatis dilewati (grandfathered, tidak dapat kode karena memang tidak butuh).
 
-## Setelah Deploy
+## Environment Variables (set di Vercel project settings)
 
-1. Buka `https://<url-project-kamu>/admin.html`, masukkan `ADMIN_SECRET`, klik **Generate Kode Baru** setiap ada pesanan Pro masuk di formulir.com. Kirim kode yang muncul ke buyer via WA/email.
-2. Buka file `js/app.js` di app FFM Toolkit, cari baris:
-   ```
-   var PRO_VERIFY_URL = "https://ffm-pro-api.vercel.app/api/verify-code";
-   ```
-   Ganti dengan URL project Vercel kamu yang sebenarnya + `/api/verify-code`, lalu redeploy app.
+| Variable | Contoh | Keterangan |
+|---|---|---|
+| `ADMIN_SECRET` | (bebas, rahasia) | Password untuk `admin.html` / `generate-code`. Sama seperti versi lama. |
+| `ORDERHERO_WEBHOOK_SECRET` | (bebas, rahasia) | Dicocokkan dengan `?secret=` di URL webhook yang didaftarkan ke OrderHero. |
+| `FFM_PRODUCT_ID` | `6a6fedabf09087975093f04a` | ID produk Formula Flipping Mobil di OrderHero, supaya webhook produk lain diabaikan. |
+| `ACTIVATION_CUTOFF_ISO` | `2026-10-03T00:00:00Z` | Order dengan `paid_at` sebelum tanggal ini dilewati (grandfathered). |
+| `RESEND_API_KEY` | (dari dashboard Resend) | Untuk kirim email kode aktivasi. |
+| `RESEND_FROM_EMAIL` | `aktivasi@info.ultimatedigitalsolution.my.id` | Subdomain `info.ultimatedigitalsolution.my.id` sudah diverifikasi di Resend — pakai local-part apa saja di depan `@`, mis. `aktivasi@`, `noreply@`, atau `ffmtoolkit@`. |
 
-## Cara Kerja
+## Langkah Setup (dilakukan manual oleh pemilik project)
 
-- `POST /api/generate-code` (perlu header `X-Admin-Secret`): bikin 1 kode baru berstatus `unused` di database KV.
-- `POST /api/verify-code` (dipanggil otomatis dari app saat buyer memasukkan kode): kalau kode belum pernah dipakai, ditandai `redeemed` dan terkunci ke device itu. Kalau device yang sama verifikasi ulang (misal re-install app), tetap dianggap valid. Kalau device lain coba pakai kode yang sama, ditolak.
+1. Domain pengirim sudah diverifikasi di Resend (`info.ultimatedigitalsolution.my.id`) — buat API key di dashboard Resend kalau belum.
+2. Deploy folder ini ke Vercel sebagai project baru (atau timpa project `ffm-backend-xi` yang lama), set semua environment variables di atas.
+3. Setelah dapat URL deployment (mis. `https://ffm-pro-backend.vercel.app`), daftarkan webhook di OrderHero: event order lunas/completed, target URL `https://ffm-pro-backend.vercel.app/api/order-webhook?secret=<ORDERHERO_WEBHOOK_SECRET>`.
+4. Update URL `PRO_VERIFY_URL` di `js/activation.js` pada app FFM Toolkit kalau domain backend berubah dari sebelumnya.
 
-## Keterbatasan yang Perlu Kamu Tahu
+## Catatan
 
-- Kode terkunci per-device berdasarkan ID acak yang disimpan di localStorage app, bukan hardware ID sungguhan. Kalau buyer clear data browser total, device ID-nya berubah dan kode lama tidak akan otomatis ke-redeem lagi ke device itu (tapi kode yang SAMA yang sudah redeemed tidak bisa dipakai ulang di device baru - buyer perlu hubungi kamu untuk reset manual via dashboard KV kalau ini terjadi).
-- Endpoint verify-code publik (tanpa auth) supaya app bisa memanggilnya langsung - ini wajar untuk mekanisme seperti ini, tapi berarti siapa pun yang tahu URL bisa mencoba menebak kode (kode 8 karakter acak dari 32 karakter unik = sangat sulit ditebak, tapi bukan mustahil di teori).
+- WhatsApp sengaja TIDAK dipakai untuk kirim kode di versi ini — dicoba dulu lewat API OrderHero, ternyata jalur WA yang aktif sekarang cuma kirim notifikasi status generik, bukan konten. Kode hanya lewat email untuk saat ini.
+- Satu order = satu kode (idempotent berdasar `order.id`), jadi aman kalau OrderHero mengirim webhook yang sama dua kali.
