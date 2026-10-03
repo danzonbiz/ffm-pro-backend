@@ -17,10 +17,15 @@ function randomCode() {
   return "FFM-PRO-" + seg() + "-" + seg();
 }
 
+function getOrderId(order) {
+  // Payload webhook OrderHero asli pakai "order_id", bukan "id" (beda dari field di REST API orders.list).
+  return order && (order.id || order.order_id);
+}
+
 function extractOrder(body) {
   // OrderHero bisa kirim payload dibungkus { event, data } atau order langsung di root - tangani dua-duanya.
-  if (body && body.data && (body.data.id || body.data.order_number)) return body.data;
-  if (body && body.order && (body.order.id || body.order.order_number)) return body.order;
+  if (body && body.data && (getOrderId(body.data) || body.data.order_number)) return body.data;
+  if (body && body.order && (getOrderId(body.order) || body.order.order_number)) return body.order;
   return body;
 }
 
@@ -77,7 +82,8 @@ export default async function handler(req, res) {
 
   try {
     var order = extractOrder(req.body || {});
-    if (!order || !order.id) return res.status(400).json({ message: "Payload order tidak dikenali" });
+    var orderId = getOrderId(order);
+    if (!order || !orderId) return res.status(400).json({ message: "Payload order tidak dikenali" });
 
     var paymentOk = order.payment_status === "paid" || order.status === "completed";
     if (!paymentOk) return res.status(200).json({ skipped: true, reason: "belum lunas" });
@@ -92,7 +98,7 @@ export default async function handler(req, res) {
     }
 
     // Idempotensi: kalau order ini sudah pernah diproses, jangan generate/kirim lagi.
-    var orderKey = "order:" + order.id;
+    var orderKey = "order:" + orderId;
     var existing = await kv.get(orderKey);
     if (existing) {
       return res.status(200).json({ already_processed: true, code: existing.code });
@@ -108,10 +114,10 @@ export default async function handler(req, res) {
     await kv.set("code:" + code, {
       status: "unused",
       createdAt: Date.now(),
-      note: "Auto dari order " + order.order_number || order.id,
+      note: "Auto dari order " + (order.order_number || orderId),
       email: email,
       whatsapp: order.customer_phone || "",
-      orderId: order.id
+      orderId: orderId
     });
     await kv.set(orderKey, { code: code, createdAt: Date.now() });
 
